@@ -18,12 +18,10 @@
 		"comment":"this will expand to a set of subst_param elements"
 	},
 	{
-		"id":"src_bam",
+		"id":"src_bams",
 		"required":"yes",
-		"subst_constructor":{
-			"vals":[ {"subst":"indatadir"}, "/", {"subst":"rpt"}, ".bam" ],
-			"postproc":{"op":"concat", "pad":""}
-		}
+    "default":"",
+    "comment":"One or more input files can be specified here"
 	},
 	{"id":"pre_alignment_hs_name","required":"no","default":"pre_alignment"},
 	{
@@ -180,11 +178,21 @@
 ],
 "nodes":[
 	{
-		"id":"src_bam",
-		"type":"INFILE",
-		"name":{"subst":"src_bam"},
-		"description":"BAM using as input to this pipeline - expected to already contain PhiX (normally from hyb buffer spike-in) alignments"
+		"id":"bamcat",
+		"type":"EXEC",
+		"use_STDIN": false,
+		"use_STDOUT": true,
+    "cmd":[ "bamcat" , "level=0", "inputformat=bam", {"subst":"src_bams"}],
+		"description":"run bamcat on BAM(s) used as input to this pipeline - expected to already contain PhiX (normally from hyb buffer spike-in) alignments"
 	},
+  {
+    "id":"teecat",
+    "type":"EXEC",
+    "use_STDIN": true,
+    "use_STDOUT": false,
+    "comment":"large wait (500 minutes) to avoid unnecessary spill to disk; specify parameter value teepot_tempdir_value to specify teepot tempdir",
+    "cmd":[ "teepot", {"subst":"teepot_vflag", "ifnull":"-v"}, {"subst":"teepot_tempdir_flag"}, "-w", "30000", "-m", "1G", "__COLLATE_OUT__", "__CHECK_OUT__" ]
+  },
 	{
 		"id":"bamcollate2",
 		"type":"EXEC",
@@ -325,7 +333,9 @@
 	}
 ],
 "edges":[
-	{ "id":"src_to_bc2", "from":"src_bam", "to":"bamcollate2" },
+	{ "id":"src_to_bc2", "from":"bamcat", "to":"teecat" },
+  { "id":"teecat_to_bc2", "from":"teecat:__COLLATE_OUT__", "to":"bamcollate2" },
+  { "id":"teecat_to_seqchksum", "from":"teecat:__CHECK_OUT__", "to":"seqchksum" },
 	{ "id":"bc2_to_ti", "from":"bamcollate2", "to":"tee0" },
 	{ "id":"t0_to_bamcollate2_ranking_phix", "from":"tee0:__PHIX_ALN_OUT__", "to":"bamrecompress_input" },
 	{ "id":"brci_to_ipab", "from":"bamrecompress_input", "to":"initial_phix_aln_bam" },
@@ -342,7 +352,6 @@
 	{ "id":"af_to_fopt", "from":"alignment_filter", "to":"final_output_prep_target" },
 	{ "id":"af_to_fopp", "from":"alignment_filter:__PHIX_BAM_OUT__", "to":"final_output_prep_phix" },
 	{ "id":"af_to_fophs", "from":"alignment_filter:__HUMAN_SPLIT_BAM_OUT__", "to":"final_output_prep_hs" },
-        { "id":"src_bam_to_seqchksum", "from":"src_bam", "to":"seqchksum" },
 	{ "id":"fopt_to_bam", "from":"final_output_prep_target", "to":"seqchksum:target_seqchksum" },
 	{ "id":"fopp_to_bam_phix", "from":"final_output_prep_phix", "to":"seqchksum:phix_seqchksum" },
 	{ "id":"fopp_to_bam_phix", "from":"final_output_prep_hs", "to":"seqchksum:hs_seqchksum" }
