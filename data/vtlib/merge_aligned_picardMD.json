@@ -115,14 +115,14 @@
    "type":"EXEC",
    "use_STDIN": true,
    "use_STDOUT": true,
-   "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "MarkDuplicates","I=/dev/stdin","O=/dev/stdout", {"subst":"pmd_metrics_file_flag"}, {"subst":"tmpdir_md"}]
+   "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "MarkDuplicates","I=/dev/stdin","O=/dev/stdout","COMPRESSION_LEVEL=0", {"subst":"pmd_metrics_file_flag"}, {"subst":"tmpdir_md"}]
   }, 
   {
   "id":"picard_sort_coord",
   "type":"EXEC",
   "use_STDIN": true,
   "use_STDOUT": true,
-  "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "SortSam", "I=/dev/stdin", "O=/dev/stdout", "SORT_ORDER=coordinate", {"subst":"tmpdir_sortsamcoord"} ]
+  "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "SortSam", "I=/dev/stdin", "O=/dev/stdout", "COMPRESSION_LEVEL=0","SORT_ORDER=coordinate", {"subst":"tmpdir_sortsamcoord"} ]
    },
 	{
 		"id": "merge_final_output_prep",
@@ -170,9 +170,9 @@
 ],
   "edges": [
 	{ "id": "crammerge_to_sort_qname", "from": "crammerge", "to": "picard_sort_qname" },
-        { "id": "qname_to_file", "from": "picard_sort_qname", "to": "qname_sorted_bam" },
-        { "id": "qname_to_picard_md", "from": "qname_sorted_bam", "to":"picard_MarkDuplicates" },
-        { "id": "picard_md_to_coord_sort", "from": "picard_MarkDuplicates", "to": "picard_sort_coord" },
+  { "id": "qname_to_file", "from": "picard_sort_qname", "to": "qname_sorted_bam" },
+  { "id": "qname_to_picard_md", "from": "qname_sorted_bam", "to":"picard_MarkDuplicates" },
+  { "id": "picard_md_to_coord_sort", "from": "picard_MarkDuplicates", "to": "picard_sort_coord" },
 	{ "id": "picard_sort_to_final_output_prep", "from": "picard_sort_coord", "to": "merge_final_output_prep" },
 	{ "id": "merge_seqchksum_to_seqchksumdefault_tee", "from": "merge_seqchksum", "to": "seqchksumdefault_head5" },
 	{ "id": "seqchksumdefault_head5", "from":"seqchksumdefault_head5", "to":"cmp_seqchksumdefault:__MERGED_SEQCHKSUM_IN__" },
