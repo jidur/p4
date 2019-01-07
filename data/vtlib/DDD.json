@@ -1,0 +1,172 @@
+{
+"description": "Read ALIGNED data from library CRAM file, sort by queryname and  run Picard MarkDuplicates: full PG history, complete SQ lines, adapter marking, etc. The seqchksum file from the original is compared with the seqchksum produced at the end.The input cram is already expected to have been sorted by coordinates with the adddupmarksupport flag specified",
+"version":"0.5",
+"subst_params": [
+	{
+		"id":"basic_pipeline_params_file",
+		"required":"yes",
+		"subst_constructor":{
+			"vals":[ {"subst":"cfgdatadir"}, "/", "alignment_common.json" ],
+			"postproc":{"op":"concat", "pad":""}
+		}
+	},
+	{
+		"id": "basic_pipeline_params",
+		"type":"SPFILE",
+		"name":{"subst":"basic_pipeline_params_file"},
+		"required": "no",
+		"comment":"this will expand to a set of subst_param elements"
+	},
+        {       "id":"java_re",
+                "required":"no",
+                "default":"/usr/bin/java",
+                "comment":"Picard requires java version 1.8.x"
+        },
+        {       "id":"picard_executable",
+                "required":"no",
+                "default":"/tmp/npg_seq_melt/bin/picard.jar"
+        },
+	{ 
+		"id":"incram", 
+		"required":"yes", 
+		"default":"",
+		"comment":""
+	},
+  {
+                "id":"pmd_metrics_file_flag",
+                "required":"no",
+                "subst_constructor":{
+                        "vals":[ "M=", {"subst":"outdatadir"}, "/", {"subst":"library"}, ".markdups_metrics.txt" ],
+                        "postproc":{"op":"concat", "pad":""}
+                }
+  },
+        {
+                "id":"incram_seqchksum",
+                "required":"yes",
+                "default":""
+        }, 
+        {
+	       "id":"qsort_file",
+	       "required":"no",
+               "subst_constructor":{
+                   "vals":[ {"subst":"outdatadir"},"/", {"subst":"library"}, ".pre_markdups.bam" ],
+	           "postproc":{"op":"concat", "pad":""}
+	        }
+        },
+	{"id":"final_output_prep_name","required":"no","default":"DDD_final_output_prep"},
+	{
+		"id":"DDD_final_output_prep",
+		"required":"yes",
+		"subst_constructor":{
+			"vals":[ {"subst":"cfgdatadir"}, "/", {"subst":"final_output_prep_name"}, ".json" ],
+			"postproc":{"op":"concat", "pad":""}
+		}
+	},
+  {
+             "id":"tmpdir_qname_sort",
+             "required":"no",
+             "subst_constructor":{
+                   "vals":[ "TMP_DIR=",{"subst":"tmpdir"}, "/", "sortsamqname_tmp" ],
+                   "postproc":{"op":"concat", "pad":""}
+             }
+   },
+   {
+             "id":"tmpdir_md",
+             "required":"no",
+             "subst_constructor":{
+                   "vals":[ "TMP_DIR=",{"subst":"tmpdir"}, "/", "markduplicates_tmp" ],
+                   "postproc":{"op":"concat", "pad":""}
+             }
+   },
+   {
+             "id":"tmpdir_sortsamcoord",
+             "required":"no",
+             "subst_constructor":{
+                   "vals":[ "TMP_DIR=",{"subst":"tmpdir"}, "/", "sortsamcoord_tmp" ],
+                   "postproc":{"op":"concat", "pad":""}
+             }
+   }
+],
+"nodes": [
+  {"id":"scramble_cram2bam",
+   "type":"EXEC",
+   "use_STDIN": false,
+   "use_STDOUT": true,
+   "cmd":[
+        "scramble",
+        "-I", "cram",
+        "-O", "bam",
+        {"subst":"incram"}
+        ]
+  },
+  {
+   "id":"picard_sort_qname",
+   "type":"EXEC",
+   "use_STDIN": true,
+   "use_STDOUT": true,
+   "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "SortSam", "I=/dev/stdin","O=/dev/stdout" , "SORT_ORDER=queryname", {"subst":"tmpdir_qname_sort"} ]
+  },
+  {
+   "id":"qname_sorted_bam",
+    "type":"RAFILE",
+    "name":{"subst":"qsort_file"}
+  },
+  {
+   "id":"picard_MarkDuplicates",
+   "type":"EXEC",
+   "use_STDIN": true,
+   "use_STDOUT": true,
+   "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "MarkDuplicates","I=/dev/stdin","O=/dev/stdout","COMPRESSION_LEVEL=0", {"subst":"pmd_metrics_file_flag"}, {"subst":"tmpdir_md"}]
+  }, 
+  {
+  "id":"picard_sort_coord",
+  "type":"EXEC",
+  "use_STDIN": true,
+  "use_STDOUT": true,
+  "cmd": [{"subst":"java_re"},"-Xmx2g","-jar",{"subst":"picard_executable"}, "SortSam", "I=/dev/stdin", "O=/dev/stdout", "SORT_ORDER=coordinate","COMPRESSION_LEVEL=0", {"subst":"tmpdir_sortsamcoord"} ]
+   },
+ {
+		"id": "final_output_prep",
+		"type": "VTFILE",
+		"name": {"subst":"DDD_final_output_prep"},
+		"comment":"inputs: _stdin_ (bam); outputs: _stdout_ (seqchksum_file)",
+		"description": "subgraph containing post alignment_filter process (target)"
+},
+	{
+		"id":"seqchksum_head5",
+		"type":"EXEC",
+		"use_STDIN": true,
+		"use_STDOUT": true,
+		"type":"EXEC",
+		"cmd":[ "head", "-5" ],
+		"description":"Only use top 5 lines of seqchksum file for the comparison"
+	},
+	{
+		"id":"seqchksumdefault_head5",
+		"type":"EXEC",
+		"use_STDIN": false,
+		"use_STDOUT": true,
+		"type":"EXEC",
+		"cmd":[ "head", "-5", {"subst":"incram_seqchksum"} ],
+		"description":"Only use top 5 lines of seqchksum file for the comparison."
+	},
+	{
+		"id":"cmp_seqchksumdefault",
+		"use_STDIN": true,
+		"use_STDOUT": true,
+		"type":"EXEC",
+		"cmd":[ "cmp", "-s", "__SEQCHKSUM_IN__" ],
+		"description":"check input primary/sequence data matches output"
+	}
+],
+  "edges": [
+        { "id": "cram_to_bam", "from": "scramble_cram2bam", "to": "picard_sort_qname" },
+        { "id": "qname_to_file", "from": "picard_sort_qname", "to": "qname_sorted_bam" },
+        { "id": "qname_to_picard_md", "from": "qname_sorted_bam", "to":"picard_MarkDuplicates" },
+        { "id": "picard_md_to_coord_sort", "from": "picard_MarkDuplicates", "to": "picard_sort_coord" },
+        { "id": "picard_sort_to_final_output_prep", "from": "picard_sort_coord", "to": "final_output_prep" },
+	{ "id": "seqchksumdefault_head5", "from":"seqchksumdefault_head5", "to":"cmp_seqchksumdefault:__SEQCHKSUM_IN__" },
+	{ "id": "final_output_prep_to_head5", "from": "final_output_prep","to": "seqchksum_head5" },
+	{ "id": "seqchksum_head5_to_cmp_seqchksumdefault", "from": "seqchksum_head5","to": "cmp_seqchksumdefault" }
+]
+}
