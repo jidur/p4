@@ -130,6 +130,9 @@ foreach my $node_with_cmd ( grep {$_->{'cmd'}} @{$flat_graph->{'nodes'}}) {
 		${$cmd_ref} =~ s/\A(\S+)/ abs_path( (-x $1 ? $1 : undef) || (which $1) || croak "cannot find program $1" )/e;
 	}
 }
+if($flat_graph->{'edges'}) {
+	$flat_graph->{'edges'} = finalise_array($flat_graph->{'edges'});
+}
 
 print $out to_json($flat_graph);
 
@@ -430,10 +433,11 @@ sub apply_subst {
 		#  to elements which are later pruned/spliced away. See use of $cull_node_ids list returned by splice_nodes() in report_pv_ewi() for how this is done.)
 		my $id = q[PREID];
 		$ewi->{settag}->(\$id);
+		my $elem_id = (exists $elem->{id} and $elem->{id})? $elem->{id} : q[NOID];
 
-		$ewi->{addlabel}->(q{assigning to id:[} . $elem->{id} . q{]});
+		$ewi->{addlabel}->(q{assigning to id:[} . $elem_id . q{]});
 		$elem = subst_walk($elem, $params, $ewi);
-		$id = $vtnode_prefix . (exists $elem->{id} and $elem->{id})? $elem->{id} : q[NOID];
+		$id = $vtnode_prefix . $elem_id;
 		$ewi->{removelabel}->();
 
 	}
@@ -444,6 +448,12 @@ sub apply_subst {
 		$id ||= q[NOID];
 		$ewi->{addlabel}->(q{assigning to id:[} . $id . q{]});
 		$elem = subst_walk($elem, $params, $ewi);
+		$ewi->{removelabel}->();
+	}
+
+	if($cfg->{subgraph_io}) {
+		$ewi->{addlabel}->(q{subgraph_io});
+		$cfg->{subgraph_io} = subst_walk($cfg->{subgraph_io}, $params, $ewi);
 		$ewi->{removelabel}->();
 	}
 
@@ -833,7 +843,7 @@ sub resolve_select_value {
 			$default = subst_walk($select->{default}, $params, $ewi, $aux);
 		}
 
-		if(not $default or (ref $default eq q[ARRAY] and not @{$default})) { return; }
+		if(not defined $default or (ref $default eq q[ARRAY] and not @{$default})) { return; }
 
 		$indexes = $default;
 		if(not ref $indexes) { $indexes = [ $indexes ]; }
@@ -842,7 +852,7 @@ sub resolve_select_value {
 	$indexes = finalise_array($indexes); # do this after default check
 
 	# validate indices - numerics for array cases, existing keys for hash cases
-	if(not defined ($indexes = _validate_indexes($indexes, $select->{cases}, $params, $ewi))) { # array indices numeric and in range? hash keys exist in hash?
+	if(not $select->{allow_unspec_keys} and not defined ($indexes = _validate_indexes($indexes, $select->{cases}, $params, $ewi))) { # array indices numeric and in range? hash keys exist in hash?
 		$ewi->{additem}->($EWI_ERROR, 0, q[select directive without valid indexes (select on: ], $id_string, q[)]);
 		return;
 	}
@@ -1001,10 +1011,10 @@ sub report_pv_ewi {
 
 	# do the same recursively for any children
 	for my $tn (@{$tree_node->{children}}) {
-		if($tn->{ewi}->{report}->(0, $logger, $cull_node_ids)) { $fatality = 1; }
+		if(report_pv_ewi($tn, $logger, $cull_node_ids)) { $fatality = 1; }
 	}
 
-	return $fatality; # should return some kind of error indicator, I think
+	return $fatality;
 }
 
 #######################################################################################
@@ -1020,17 +1030,20 @@ sub report_pv_ewi {
 #         the resulting graph with one of the visualisation tools.)
 #######################################################################################
 sub flatten_tree {
-	my ($tree_node, $tver_default, $flat_graph) = @_; 
+	my ($tree_node, $tver_default, $flat_graph, $ancestor_prefixes) = @_; 
 
 	$flat_graph ||= {};
+	$ancestor_prefixes ||= [];
 
 	# insert edges and nodes from current tree_node to $flat_graph
-	subgraph_to_flat_graph($tree_node, $tver_default, $flat_graph);
+	subgraph_to_flat_graph($tree_node, $tver_default, $flat_graph, $ancestor_prefixes);
 
 	# do the same recursively for any children
+	push @{$ancestor_prefixes}, ($tree_node->{node_prefix} || q[]);
 	for my $tn (@{$tree_node->{children}}) {
-		flatten_tree($tn, $tver_default, $flat_graph);
+		flatten_tree($tn, $tver_default, $flat_graph, $ancestor_prefixes);
 	}
+	pop @{$ancestor_prefixes};
 
 	return $flat_graph;
 }
@@ -1040,28 +1053,31 @@ sub flatten_tree {
 #  losing everything except nodes and edges is a possibly undesirable side-effect of this
 #########################################################################################
 sub subgraph_to_flat_graph {
-	my ($tree_node, $tver_default, $flat_graph) = @_;
+	my ($tree_node, $tver_default, $flat_graph, $ancestor_prefixes) = @_;
 
 	my $vtnode_id = $tree_node->{id};
 	my $vt_name = $tree_node->{name};
 
 	my $subcfg = $tree_node->{cfg};
 
+	my $ancestor_prefix = join(q//, @{$ancestor_prefixes});
+
 	###################################################################################
 	# prefix the nodes in this subgraph with a prefix to ensure uniqueness of id values
 	###################################################################################
 	my $tver = ($subcfg->{version} or $tver_default);
-	$subcfg->{nodes} = [ (map { $_->{id} = sprintf "%s%s", $tree_node->{node_prefix}, $_->{id}; if($_->{type} eq q[EXEC] and not $_->{tver} and $tver ne $tver_default) { $_->{tver} = $tver; }  $_; } @{$subcfg->{nodes}}) ];
+	$subcfg->{nodes} = [ (map { $_->{id} = sprintf "%s%s%s", $ancestor_prefix, $tree_node->{node_prefix}, $_->{id}; if($_->{type} eq q[EXEC] and not $_->{tver} and $tver ne $tver_default) { $_->{tver} = $tver; }  $_; } @{$subcfg->{nodes}}) ];
 
 	########################################################################
 	# any edges which refer to nodes in this subgraph should also be updated
 	########################################################################
+	$subcfg->{'edges'} = finalise_array($subcfg->{'edges'});
 	for my $edge (@{$subcfg->{edges}}) {
-		if(not get_child_prefix($tree_node->{children}, $edge->{from})) { # if there is a child prefix, this belongs to a subgraph - don't prefix it
-			$edge->{from} = sprintf "%s%s", $tree_node->{node_prefix}, $edge->{from};
+		if($edge->{from}) {
+			$edge->{from} = sprintf "%s%s%s", $ancestor_prefix, $tree_node->{node_prefix}, $edge->{from};
 		}
-		if(not get_child_prefix($tree_node->{children}, $edge->{to})) { # if there is a child prefix, this belongs to a subgraph - don't prefix it
-			$edge->{to} = sprintf "%s%s", $tree_node->{node_prefix}, $edge->{to};
+		if($edge->{to}) {
+			$edge->{to} = sprintf "%s%s%s", $ancestor_prefix, $tree_node->{node_prefix}, $edge->{to};
 		}
 	}
 
@@ -1078,10 +1094,10 @@ sub subgraph_to_flat_graph {
 	# now fiddle the edges in the flattened graph (maybe "fiddle" should be defined)
 
 	# first inputs to the subgraph... (identify edges in the flat graph which terminate in nodes of this subgraph; use the subgraph_io section of the subgraph to remap these edge destinations)
-	my $in_edges = [ (grep { $_->{to} =~ /^$vtnode_id(:|$)/; } @{$flat_graph->{edges}}) ];
+	my $in_edges = [ (grep { $_->{to} and $_->{to} =~ /^$ancestor_prefix$vtnode_id(:|$)/; } @{$flat_graph->{edges}}) ];
 	if(@$in_edges and not $subgraph_nodes_in) { $logger->($VLFATAL, q[Cannot remap VTFILE node "], $vtnode_id, q[". No inputs specified in subgraph ], $vt_name); }
 	for my $edge (@$in_edges) {
-		if($edge->{to} =~ /^$vtnode_id:?(.*)$/) {
+		if($edge->{to} =~ /^$ancestor_prefix$vtnode_id:?(.*)$/) {
 			my $portkey = $1;
 			$portkey ||= q[_stdin_];
 
@@ -1109,12 +1125,7 @@ sub subgraph_to_flat_graph {
 				else {
 					$mod_edge = $edge;
 				}
-				if(get_child_prefix($tree_node->{children}, $ports->[$i])) { # if there is a child prefix, this belongs to a subgraph - don't prefix it
-					$mod_edge->{to} = $ports->[$i];
-				}
-				else {
-					$mod_edge->{to} = sprintf "%s%s", $tree_node->{node_prefix}, $ports->[$i];
-				}
+				$mod_edge->{to} = sprintf "%s%s%s", $ancestor_prefix, $tree_node->{node_prefix}, $ports->[$i];
 			}
 		}
 		else {
@@ -1124,10 +1135,10 @@ sub subgraph_to_flat_graph {
 	}
 
 	#  ...then outputs from the subgraph (identify edges in the flat graph which originate in nodes of the subgraph; use the subgraph_io section of the subgraph to remap these edge destinations)
-	my $out_edges = [ (grep { $_->{from} =~ /^$vtnode_id(:|$)/; } @{$flat_graph->{edges}}) ];
+	my $out_edges = [ (grep { $_->{from} and $_->{from} =~ /^$ancestor_prefix$vtnode_id(:|$)/; } @{$flat_graph->{edges}}) ];
 	if(@$out_edges and not $subgraph_nodes_out) { $logger->($VLFATAL, q[Cannot remap VTFILE node "], $vtnode_id, q[". No outputs specified in subgraph ], $vt_name); }
 	for my $edge (@$out_edges) {
-		if($edge->{from} =~ /^$vtnode_id:?(.*)$/) {
+		if($edge->{from} =~ /^$ancestor_prefix$vtnode_id:?(.*)$/) {
 			my $portkey = $1;
 			$portkey ||= q[_stdout_];
 
@@ -1136,13 +1147,7 @@ sub subgraph_to_flat_graph {
 				$logger->($VLFATAL, q[Failed to map port in subgraph: ], $vtnode_id, q[:], $portkey);
 			}
 
-			# do check for existence of port in 
-			if(get_child_prefix($tree_node->{children}, $port)) { # if there is a child prefix, this belongs to a subgraph - don't prefix it
-				$edge->{from} = $port;
-			}
-			else {
-				$edge->{from} = sprintf "%s%s", $tree_node->{node_prefix}, $port;
-			}
+			$edge->{from} = sprintf "%s%s%s", $ancestor_prefix, $tree_node->{node_prefix}, $port;
 		}
 		else {
 			$logger->($VLMIN, q[Currently only edges to stdin processed when remapping VTFILE edges. Not processing: ], $edge->{to}, q[ in edge: ], $edge->{id});
@@ -1413,9 +1418,9 @@ sub validate_splice_candidates {
 		}
 	}
 
-	#  all edge termini must be unique (over replacement and pruning edges) except for STDIN/STDOUT
+	#  all edge termini must be unique (over replacement edges) except for STDIN/STDOUT
 	my %endpoints;
-	for my $edge (@{$splice_candidates->{replacement_edges}}, @{$prune_edges}) {
+	for my $edge (@{$splice_candidates->{replacement_edges}}) {
 		my $from_end = $edge->{from};
 		if($from_end and $from_end !~ /:/) { $from_end .= q[:STDOUT] };
 
@@ -1473,13 +1478,31 @@ sub final_splice {
 	# add new edges
 	push @{$flat_graph->{edges}}, @{$splice_candidates->{replacement_edges}};
 
-	# remove pruned ports - prune edges are not required to be two-ended; just disregard undefined to/from attributes
+	# remove pruned ports - prune edges are not required to be two-ended; just disregard undefined to/from attributes; only remove ports
+	#   that do not appear in splice edges (aka replacement edges)
 	for my $prune_edge (@{$splice_candidates->{prune_edges}}) {
-		if($prune_edge->{from}) { remove_port($prune_edge->{from}, $SRC, $flat_graph); }
-		if($prune_edge->{to}) { remove_port($prune_edge->{to}, $DST, $flat_graph); }
+		if($prune_edge->{from} and not _in_replacement_edges($prune_edge->{from}, $splice_candidates, $SRC)) { remove_port($prune_edge->{from}, $SRC, $flat_graph); }
+		if($prune_edge->{to} and not _in_replacement_edges($prune_edge->{to}, $splice_candidates, $DST)) { remove_port($prune_edge->{to}, $DST, $flat_graph); }
 	}
 
 	return $flat_graph;
+}
+
+sub _in_replacement_edges {
+	my ($port_spec, $splice_candidates, $type) = @_;
+
+	my $direction = ($type == $SRC)? q[from]: q[to];
+	my $std_port = ($type == $SRC)? q[STDIN]: q[STDOUT];
+
+	for my $edge (@{$splice_candidates->{replacement_edges}}) {
+		my $end = $edge->{$direction};
+		if($end and $end !~ /:/) { $end .= qq[:$std_port] };
+
+		if($end eq $port_spec) { return 1; }
+	}
+
+	return 0;
+
 }
 
 ################################################################################################

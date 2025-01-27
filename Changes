@@ -1,6 +1,178 @@
 CHANGES LOG
 -----------
 
+ - Added .github/dependabot.yml file to auto-update GitHub actions
+
+0.40.0
+ - change permissions of STAR working directory to allow deletion by standard pipeline tools
+ - add Dockerfile to create container with appropriate tools for basic analyses
+ - Updated image labels
+ 
+0.39.0
+ - use "samtools index" instead of "cram_index to create cram indexes
+ - for bam and cram index creation, use "samtools index -o <index_file>" to explicitly indicate the index file
+
+0.38.0
+ - add additional autosome specific coverage threshold to final_output_prep.json
+
+0.37.2
+ - change bambi i2b command in stage1 analysis to use new boolean version of --nocall-quality flag
+
+0.37.1
+ - amend markdup command chain for duplexseq (nanoseq) analyses
+ - updated to use samtools merge instead of bammerge for library merging  
+
+0.37.0
+ - add i2b_nocall_qual_switch to stage1 analysis to enable "--nocall-quality=2" to be set for bambi i2b
+
+0.36.0
+ - add hs_bwa_executable  parameter to allow different bwa executables for target and nchs alignments (e.g. bwa-mem2 and bwa0_6)
+ - add optminpixeldif flag (optical distance for duplicates) to bamstreamingmarkduplicates command (biobambam markdup method)
+
+0.35.0
+ - replace scramble with samtools in analysis pipeline templates
+
+0.34.0
+ - add calmd to biobambam,samtools and duplexseq markdup methods
+
+0.33.1
+ - update CI and tests
+
+0.33.0
+ - extend list of preserved auxtags in realignment bamreset (for Duplex-Seq)
+
+0.32.4
+ - add supplementary files used in dehumanising CLIMB uploads for ENA (Heron)
+ - add maxreadlen flag to bamstreamingduplicates in markdup_biobambam with default of 500
+
+0.32.3
+ - force markdup_method:none (and primer_clip_method:no_clip) for untagged phiX and non-consented human split
+
+0.32.2
+ - change prefix for SamHaplotag log files to include a trailing '.' (simplifies npg_irods archival)
+
+0.32.1
+ - add missing edge to top-level human split template
+
+0.32.0
+ - add haplotag processing to stage2 analysis
+ - move C2A analysis from bam to cram output stream (to void possible malformed MD tag values)
+ - remove intermediate files from duplexseq processing
+ - flatten edges arrays (burst sub-arrays) as part of vtfp processing
+
+0.31.0
+ - add C2A analysis to stage2 of standard pipelines
+
+0.30.0
+ - add optional flags to bwa mem command for Hi-C library stage 2 analyses
+ - bam files (and md5, index files) produced using samtools and md5sum instead of bamrecompress
+
+0.29.0
+ - renamed markdup_botseq.json markdup_duplexseq.json
+ - add markdup_botseq.json
+
+0.28.2
+ - move samtools calmd to correct position downstream of coord sort, and make calmd -Q flag (quiet) the default (alignment with markdup_method:none)
+
+0.28.1
+ - amend samtools command to "ampliconclip" (previously "amplicon-clip")
+
+0.28.0
+ - a new template for cases when marking duplicates is not required, with
+   an option to clip primers, which relies on a new feature in samtools
+
+0.27.0
+ - check for divide by 0 when calc samtools subsample value
+ - drop file check, explictly assume fastq.gz files are gzipped when calc #reads for salmon
+ - make the code flow more robust in cases of insufficient reads for salmon
+ - unconditionally remove auxtags before adapter clipping when realignment_switch is 1
+
+0.26.0
+ - add parameters file for top-up merge
+ - functional equivalence: enable selection of markdup method - biobambam (default), samtools or picard
+
+0.25.0
+ - add target autosome stats file generation to final_output_prep
+ - library merge:  
+         cram_write_option (default: use_tears, option use_local)
+         updated templates to v2.0 format
+ - add options to standard stage2 templates to handle realignment
+ 
+release 0.24.2
+ - stage 1 and seq alignment templates: remove fastqcheck file generation
+ - stage 1 template: remove generation of a fastq file for index read 
+
+release 0.24.1
+ - correct count of minimum reads to run Salmon
+
+release 0.24.0
+ - allow format selection for stage1 outputs/stage2 inputs (default: cram)
+ - stage1 adapter detection now done in parallel with phix alignment
+ - add samtools stats qc check to stage1 analysis
+ - stage2 analysis templates amended to allow merging of multiple inputs; application of spatial_filter moved from stage1
+ - RNA alignments handle single-end runs
+ - new hisat2 alignment method
+ - use compressed fastq input for star alignment
+ - salmon quantification
+     check that there are enough reads in the fastq file inputs
+     check if quant file is present before copying it
+     connect zip node to quant_genes node to ensure zip waits for salmon
+ - post_alignment_realignment.json: new port specification format
+
+release 0.23.0
+ - target stats (samtools) addition to final output prep
+
+release 0.22.1
+ - add default ("ifnull":"salmon") value for quant_method parameter to fix star/tophat2 tag#0 problem
+
+release 0.22.0
+ - new template for minimap2 alignment, with optional post-alignment filtering of secondary and supplementary
+     alignments, and minimap2_F_value parameter to allow non-default insert size to be specified (-F flag)
+ - subsampling of 10K reads (fastq produced by samtools view -s SEED.FRAC) and production of fastqcheck files
+     added to stage1 and stage2 analyses (nchs, single-/paired-end)
+ - add lane-level samtools stats to stage1
+ - spatial filter application moved to stage2 from stage1
+ - amend spatial_filter input/output file names for easier identification
+ - empty edge entries recognised as noop - filter in viv.pl, ignore in visualisation, do not apply VTFILE
+    prefixes when there are no to and from attributes
+ - added -F option to minimap2
+
+release 0.21.0
+ - salmon_alignment: copy quant.genes.sf to archive directory
+ - star_alignment: assign appropriate suffixes to bamtofastq output files
+ - merge: flag change for use with tears 1.2.4
+
+release 0.20.1
+ - star_alignment
+    correct version number (to 2.0)
+    do queryname sort after alignment
+ - upgrade realignment template to version 2
+ - viv.pl: loosen overly strict checks when using output file nodes with subtype dummy
+
+release 0.20.0
+ - phase 1 of new format templates (port spec)
+ - replacement of AlignmentFilter and spatial filter with bambi commands
+ - now handles XA/Y-split with no target alignment
+
+release 0.19.3
+ - fixes for nonconsented human split with no target alignment
+     change intermediate OUTFILE node to RAFILE
+     remove unneeded bammarkduplicates and parameters only used by sort and duplicate marking
+
+release 0.19.2
+ - fix for single-end alignments (bwa aln): specify use_STD[IN|OUT] attributes for EXEC nodes in bwa_aln_se_alignment
+
+release 0.19.1
+ - fix split_by_chromosome template (ysplit)
+
+release 0.19.0
+ - add new templates for STAR alignment and Salmon
+ - Small change in final_output_prep to allow bamsort_cmd to have configurable executable and scramble to have optional embed reference param.
+ - add select directive
+ - splice/prune operations can be specified in param_vals file
+ - new version2 format of port specification in templates
+ - correct failure to report errors lower than one VTFILE level
+
 release 0.18.6
  - Y-split fixes
      When processing VTFILE nodes, make sure that parameters are reevaluated locally instead of naively inheriting values
